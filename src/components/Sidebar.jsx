@@ -5,7 +5,6 @@ const ITEMS = [
   { key: 'news', icon: '◉', label: '资讯' },
   { key: 'alerts', icon: '◆', label: '预警' },
   { key: 'heatmap', icon: '▦', label: '板块' },
-  { key: 'holdings', icon: '◈', label: '持仓' },
   { key: 'profile', icon: '●', label: '我的' },
 ]
 

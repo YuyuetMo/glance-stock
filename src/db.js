@@ -6,7 +6,7 @@ let dbPromise = null
 
 export function initDB() {
   if (!dbPromise) {
-    dbPromise = openDB('glance-db', 3, {
+    dbPromise = openDB('glance-db', 4, {
       upgrade(db) {
         if (!db.objectStoreNames.contains('watchlist')) {
           db.createObjectStore('watchlist', { keyPath: 'code' })
@@ -28,6 +28,10 @@ export function initDB() {
         if (!db.objectStoreNames.contains('customStocks')) {
           // stocks added by 6-digit code (outside the built-in universe)
           db.createObjectStore('customStocks', { keyPath: 'code' })
+        }
+        if (!db.objectStoreNames.contains('ui')) {
+          // UI preferences, e.g. home dashboard widget order (key 'home')
+          db.createObjectStore('ui', { keyPath: 'key' })
         }
       },
     })
@@ -123,4 +127,15 @@ export async function saveCustomStock(def) {
 export async function removeCustomStock(code) {
   const db = await initDB()
   return db.delete('customStocks', code)
+}
+
+// ── UI preferences (e.g. home dashboard widget order) ─────────────────────────
+export async function loadUILayout() {
+  const db = await initDB()
+  return db.get('ui', 'home')
+}
+
+export async function saveUILayout(order) {
+  const db = await initDB()
+  return db.put('ui', { key: 'home', order })
 }

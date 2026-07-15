@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('show-notification', { title, body }),
   // Ask the main-process quote proxy for the next snapshot.
   getQuotes: (payload) => ipcRenderer.invoke('get-quotes', payload),
+  // Resolve a free-form input (A股/HK/US/futures/ETF) to a normalized instrument def.
+  resolveInstrument: (raw) => ipcRenderer.invoke('resolve-instrument', raw),
   // Ask the main-process news proxy for the latest real market news.
   getNews: () => ipcRenderer.invoke('get-news'),
   // Ask the main process for the real all-market breadth (advance/decline/limit).

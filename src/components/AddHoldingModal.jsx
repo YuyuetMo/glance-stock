@@ -38,7 +38,7 @@ export default function AddHoldingModal() {
           <div className="ah-loading">正在实时查询 {input.toUpperCase()} …</div>
         ) : !def ? (
           <div className="ah-loading">
-            没查到「{input}」对应的 A 股，请检查代码（6 位数字）。
+            没查到「{input}」对应的标的。支持：A股6位 / 港股 hk00700 / 美股 AAPL / 期货 沪金。
             <button className="btn-primary ah-close" onClick={close}>
               关闭
             </button>
@@ -56,7 +56,7 @@ export default function AddHoldingModal() {
               </div>
             )}
             <label className="ah-field">
-              <span>成本价（元/股）</span>
+              <span>{def.type === 'future' ? '成本价（元）' : '成本价（元/股）'}</span>
               <input
                 className="ah-input font-mono"
                 type="number"
@@ -67,7 +67,7 @@ export default function AddHoldingModal() {
               />
             </label>
             <label className="ah-field">
-              <span>持有数量（股）</span>
+              <span>{def.type === 'future' ? '持有数量（手）' : '持有数量（股）'}</span>
               <input
                 className="ah-input font-mono"
                 type="number"

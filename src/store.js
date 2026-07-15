@@ -31,6 +31,8 @@ import {
   loadCustomStocks,
   saveCustomStock,
   removeCustomStock,
+  loadUILayout,
+  saveUILayout,
 } from './db'
 
 const DEFAULT_WATCHLIST = [
@@ -106,6 +108,8 @@ export const useStore = create((set, get) => ({
   lastRealCtime: 0, // newest ctime seen from the real feed (dedupe)
   selectedSector: null, // name of sector whose detail panel is open
   customStocks: {}, // { [code]: def } added by 6-digit code (persisted)
+  // Home dashboard widget order (draggable). Persisted to the ui store.
+  homeLayout: ['hero', 'sentiment', 'unified', 'risk'],
   // Add-holding modal flow (any code, incl. outside the built-in universe).
   addHoldingOpen: false,
   addHoldingInput: '',
@@ -210,7 +214,26 @@ export const useStore = create((set, get) => ({
     return null
   },
 
-  // ── Add-holding modal flow (supports any code) ───────────────────────────────
+  // ── Home dashboard layout (drag-reorder, persisted) ─────────────────────────
+  setHomeLayout: (order) => {
+    set({ homeLayout: order })
+    saveUILayout(order)
+  },
+
+  // ── Add-holding modal flow (supports any market / instrument) ───────────────
+  // Resolve a free-form input to a normalized instrument via the main process
+  // (handles A股 / HK / US / futures / ETF). Returns the def or null.
+  resolveInstrument: async (raw) => {
+    if (window.electronAPI && window.electronAPI.resolveInstrument) {
+      try {
+        return await window.electronAPI.resolveInstrument(raw)
+      } catch (e) {
+        return null
+      }
+    }
+    return null
+  },
+
   openAddHolding: (input) => {
     set({
       addHoldingOpen: true,
@@ -225,13 +248,13 @@ export const useStore = create((set, get) => ({
         set({ addHoldingResolving: false })
       }
     }
-    // If it's already a known stock, use it directly; otherwise resolve by code.
+    // If it's already a known instrument, use it directly; otherwise resolve.
     if (get().stocks[input]) {
       finish(get().stocks[input])
       return
     }
     get()
-      .resolveStock(input)
+      .resolveInstrument(input)
       .then(finish)
   },
   submitAddHolding: (costPrice, shares) => {
@@ -428,14 +451,15 @@ export const useStore = create((set, get) => ({
   // ── Init: restore persisted state ───────────────────────────────────────────
   init: async () => {
     try {
-      const [wl, al, hd, cachedNews, prof, custom] = await Promise.all([
-        loadWatchlist(),
-        loadAlerts(),
-        loadHoldings(),
-        loadNewsCache(),
-        loadProfile(),
-        loadCustomStocks(),
-      ])
+    const [wl, al, hd, cachedNews, prof, custom, lay] = await Promise.all([
+      loadWatchlist(),
+      loadAlerts(),
+      loadHoldings(),
+      loadNewsCache(),
+      loadProfile(),
+      loadCustomStocks(),
+      loadUILayout(),
+    ])
       const today = localDate()
       const yesterday = localDate(new Date(Date.now() - 86400000))
       const profile = {
@@ -464,6 +488,16 @@ export const useStore = create((set, get) => ({
 
       const patch = { profile }
       if (wl && wl.length) patch.watchlist = wl.map((x) => x.code)
+      // Home dashboard layout: merge stored order with defaults so any new
+      // widget is always present even if the stored order is from an older build.
+      const DEFAULT_LAYOUT = ['hero', 'sentiment', 'unified', 'risk']
+      if (lay && Array.isArray(lay.order) && lay.order.length) {
+        const merged = DEFAULT_LAYOUT.filter((k) => lay.order.includes(k))
+        lay.order.forEach((k) => {
+          if (DEFAULT_LAYOUT.includes(k) && !merged.includes(k)) merged.push(k)
+        })
+        patch.homeLayout = merged
+      }
       if (al) patch.alerts = al
       if (hd && hd.length) {
         const h = {}

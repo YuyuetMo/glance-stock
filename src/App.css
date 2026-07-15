@@ -638,12 +638,52 @@ button:focus-visible, input:focus-visible { outline: none; }
 
 /* ── Sentiment card (home) ─────────────────────────────────────────────────── */
 .sentiment-card {
-  background: var(--card-bg);
+  background: linear-gradient(145deg, #2a141a, #1b0d11);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-card);
   padding: 18px 20px; margin-bottom: 22px;
 }
+
+/* ── Dashboard widgets (draggable) ─────────────────────────────────────────── */
+.dash-widget {
+  position: relative;
+  margin-bottom: 4px;
+}
+.dash-widget:last-child { margin-bottom: 0; }
+.dash-handle {
+  position: absolute; top: 10px; right: 44px; z-index: 6;
+  cursor: grab; font-size: 16px; line-height: 1; color: var(--text-3);
+  opacity: 0; transition: opacity 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+.dash-widget:hover .dash-handle { opacity: 1; }
+.dash-handle:active { cursor: grabbing; color: var(--accent-2); }
+.dash-widget[draggable='true'] { cursor: grab; }
+.dash-widget.dragging { opacity: 0.55; }
+
+/* ── Watchlist / holdings unified tabs ─────────────────────────────────────── */
+.wl-tabs { display: flex; gap: 6px; }
+.wl-tab {
+  padding: 7px 16px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border); background: rgba(0, 0, 0, 0.2);
+  color: var(--text-2); font-size: 13px; transition: all 0.15s ease;
+}
+.wl-tab.active { background: var(--accent-grad); border-color: transparent; color: #fff; box-shadow: var(--glow-accent); }
+
+/* ── Instrument badges on unified cards ────────────────────────────────────── */
+.wl-badge {
+  position: absolute; top: 12px; left: 14px; z-index: 4;
+  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px;
+}
+.wl-badge.hold { background: var(--accent-grad); color: #fff; }
+.wl-badge.watch { background: rgba(140, 107, 114, 0.22); color: var(--text-2); }
+.wl-mkt {
+  position: absolute; top: 12px; left: 64px; z-index: 4;
+  font-size: 10px; color: var(--text-3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 1px 7px;
+}
+.stock-card { overflow: hidden; padding-top: 36px; }
 .sentiment-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .sentiment-title { font-size: 14px; font-weight: 700; }
 .sentiment-tag { font-size: 10px; color: var(--text-3); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }

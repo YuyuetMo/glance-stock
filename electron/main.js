@@ -29,6 +29,159 @@ function tencentCode(item) {
   return item.code
 }
 
+// ── Futures / precious metals (Eastmoney) ──────────────────────────────────
+// Tencent's hf_* futures feed is deprecated, so futures resolve via Eastmoney.
+// Curated map of common contracts: keyword → Eastmoney secid + display name.
+// (secid = "marketNum.code"; market 113=上期所, 112=上期能源, 114=大商所)
+const FUTURES_MAP = {
+  // 贵金属
+  沪金: { secid: '113.aum', name: '沪金主连' }, 黄金: { secid: '113.aum', name: '沪金主连' }, gold: { secid: '113.aum', name: '沪金主连' }, au: { secid: '113.aum', name: '沪金主连' },
+  沪银: { secid: '113.agm', name: '沪银主连' }, 白银: { secid: '113.agm', name: '沪银主连' }, silver: { secid: '113.agm', name: '沪银主连' }, ag: { secid: '113.agm', name: '沪银主连' },
+  // 基本金属 / 黑色 / 能源
+  沪铜: { secid: '113.cum', name: '沪铜主连' }, 铜: { secid: '113.cum', name: '沪铜主连' }, copper: { secid: '113.cum', name: '沪铜主连' }, cu: { secid: '113.cum', name: '沪铜主连' },
+  沪铝: { secid: '113.alm', name: '沪铝主连' }, 铝: { secid: '113.alm', name: '沪铝主连' }, al: { secid: '113.alm', name: '沪铝主连' },
+  沪镍: { secid: '113.nim', name: '沪镍主连' }, 镍: { secid: '113.nim', name: '沪镍主连' }, ni: { secid: '113.nim', name: '沪镍主连' },
+  沪锌: { secid: '113.znm', name: '沪锌主连' }, 锌: { secid: '113.znm', name: '沪锌主连' }, zn: { secid: '113.znm', name: '沪锌主连' },
+  螺纹: { secid: '113.rbm', name: '螺纹钢主连' }, 螺纹钢: { secid: '113.rbm', name: '螺纹钢主连' }, rebar: { secid: '113.rbm', name: '螺纹钢主连' }, rb: { secid: '113.rbm', name: '螺纹钢主连' },
+  橡胶: { secid: '113.rum', name: '橡胶主连' }, rubber: { secid: '113.rum', name: '橡胶主连' }, ru: { secid: '113.rum', name: '橡胶主连' },
+  铁矿石: { secid: '114.im', name: '铁矿石主连' }, 铁矿: { secid: '114.im', name: '铁矿石主连' }, iron: { secid: '114.im', name: '铁矿石主连' }, i: { secid: '114.im', name: '铁矿石主连' },
+  棕榈: { secid: '114.pm', name: '棕榈油主连' }, 棕榈油: { secid: '114.pm', name: '棕榈油主连' }, palm: { secid: '114.pm', name: '棕榈油主连' },
+  豆粕: { secid: '114.mm', name: '豆粕主连' }, soybean: { secid: '114.mm', name: '豆粕主连' }, m: { secid: '114.mm', name: '豆粕主连' },
+  焦炭: { secid: '114.jm', name: '焦炭主连' }, coke: { secid: '114.jm', name: '焦炭主连' }, jm: { secid: '114.jm', name: '焦炭主连' },
+  生猪: { secid: '114.lhm', name: '生猪主连' }, hog: { secid: '114.lhm', name: '生猪主连' }, lh: { secid: '114.lhm', name: '生猪主连' },
+}
+
+// Live futures quote via Eastmoney (returns null on any failure).
+const futureCache = new Map() // secid -> { ts, data }
+const FUTURE_TTL = 5000
+function emFutureQuote(secid) {
+  const cached = futureCache.get(secid)
+  if (cached && Date.now() - cached.ts < FUTURE_TTL) return Promise.resolve(cached.data)
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f57,f58,f60`
+  return new Promise((resolve) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          Referer: 'https://quote.eastmoney.com/',
+        },
+      },
+      (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+            const d = json && json.data
+            if (!d || d.f43 == null) return resolve(null)
+            const price = parseFloat(d.f43)
+            const prevClose = parseFloat(d.f60)
+            const change = round2(price - prevClose)
+            const changePercent = prevClose ? round2((change / prevClose) * 100) : 0
+            const out = {
+              name: d.f58 || secid,
+              price: round2(price),
+              prevClose: round2(prevClose),
+              high: round2(parseFloat(d.f44) || price),
+              low: round2(parseFloat(d.f45) || price),
+              code: d.f57 || secid,
+              change,
+              changePercent,
+            }
+            futureCache.set(secid, { ts: Date.now(), data: out })
+            resolve(out)
+          } catch (e) {
+            resolve(null)
+          }
+        })
+      }
+    )
+    req.on('error', () => resolve(null))
+    req.setTimeout(8000, function () {
+      this.destroy()
+      resolve(null)
+    })
+  })
+}
+
+// Verify a Tencent-format code via the live proxy and return a normalized def.
+async function tencentInstrument(code, market, type) {
+  try {
+    const data = await advance([{ code, market, type, symbol: code.replace(/^(sh|sz|bj|r_hk|us)/i, ''), prevClose: 0 }])
+    const q = data && data[0]
+    if (q && q.price) {
+      return {
+        code,
+        symbol: q.symbol || code.replace(/^(sh|sz|bj|r_hk|us)/i, ''),
+        name: q.name || code,
+        market,
+        type,
+        tencent: code,
+        prevClose: q.prevClose || q.price,
+        ...q,
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null
+}
+
+// Parse a free-form user input into a normalized instrument def, or null.
+// Supports: A股/ETF (6-digit), 港股 (hk00700 / 00700.hk), 美股 (AAPL / usAAPL),
+// and futures/precious metals via the curated FUTURES_MAP.
+async function resolveInstrument(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return null
+
+  // Futures / precious metals (keyword or symbol).
+  const key = s.toLowerCase().replace(/\s/g, '')
+  const fut = FUTURES_MAP[key]
+  if (fut) {
+    const q = await emFutureQuote(fut.secid)
+    if (q) {
+      return {
+        code: 'fut_' + fut.secid,
+        symbol: fut.secid.split('.')[1],
+        name: q.name || fut.name,
+        market: 'future',
+        type: 'future',
+        secid: fut.secid,
+        prevClose: q.prevClose,
+        ...q,
+      }
+    }
+    return null
+  }
+
+  // 港股: hk00700 / 00700.hk / r_hk00700
+  let m = s.match(/^(?:r_)?hk\s*(\d{4,5})$/i) || s.match(/^(\d{4,5})\.hk$/i)
+  if (m) return tencentInstrument('r_hk' + m[1], 'hk', 'stock')
+
+  // 美股: usAAPL or bare letters AAPL
+  m = s.match(/^us([a-z]{1,6})$/i)
+  if (m) return tencentInstrument('us' + m[1].toUpperCase(), 'us', 'stock')
+  if (/^[a-z]{1,6}$/i.test(s)) return tencentInstrument('us' + s.toUpperCase(), 'us', 'stock')
+
+  // A股 / ETF (6-digit, auto sh/sz/bj)
+  m = s.match(/^(sh|sz|bj)?\s*(\d{6})$/i)
+  if (m) {
+    const sym = m[2]
+    let prefix = (m[1] || '').toLowerCase()
+    if (!prefix) {
+      if (/^[69]/.test(sym)) prefix = 'sh'
+      else if (/^[03]/.test(sym)) prefix = 'sz'
+      else if (/^[48]/.test(sym)) prefix = 'bj'
+      else prefix = 'sh'
+    }
+    const code = prefix + sym
+    const type = /^(15|16|5|18)/.test(sym) ? 'fund' : 'stock'
+    return tencentInstrument(code, prefix, type)
+  }
+  return null
+}
+
 // Local simulation engine: small random walk, ±10% A-share limit, sparkline grows.
 function mockAdvance(item) {
   const prevClose = item.prevClose
@@ -143,12 +296,32 @@ async function advance(items) {
 }
 
 ipcMain.handle('get-quotes', async (_event, payload) => {
-  const allItems = [...(payload.stocks || []), ...(payload.indices || [])]
-  const advanced = await advance(allItems)
-  const byCode = new Map(advanced.map((x) => [x.code, x]))
+  // Futures (Eastmoney) are routed separately from A/HK/US/ETF (Tencent).
+  const stocks = payload.stocks || []
+  const indices = payload.indices || []
+  const futures = stocks.filter((s) => s.secid)
+  const normal = stocks.filter((s) => !s.secid)
+
+  let advanced = []
+  if (normal.length) advanced = await advance(normal)
+  const futQuotes = []
+  for (const f of futures) {
+    const q = await emFutureQuote(f.secid)
+    if (q) futQuotes.push({ code: f.code, ...q })
+  }
+  const byCode = new Map([...advanced, ...futQuotes].map((x) => [x.code, x]))
   return {
-    stocks: (payload.stocks || []).map((s) => byCode.get(s.code)),
-    indices: (payload.indices || []).map((i) => byCode.get(i.code)),
+    stocks: stocks.map((s) => byCode.get(s.code)),
+    indices: indices.map((i) => byCode.get(i.code)),
+  }
+})
+
+// Resolve a free-form input (code / keyword) to a normalized instrument def.
+ipcMain.handle('resolve-instrument', async (_event, raw) => {
+  try {
+    return await resolveInstrument(raw)
+  } catch (e) {
+    return null
   }
 })
 

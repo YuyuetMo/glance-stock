@@ -3,8 +3,7 @@ import { useStore } from '../store'
 import { STOCK_DEFS } from '../mockData'
 
 const QUICK = [
-  { key: 'goto-watchlist', label: '前往：我的自选', page: 'watchlist' },
-  { key: 'goto-holdings', label: '前往：我的持仓', page: 'holdings' },
+  { key: 'goto-watchlist', label: '前往：自选 / 持仓', page: 'watchlist' },
   { key: 'goto-news', label: '前往：今日资讯', page: 'news' },
   { key: 'goto-alerts', label: '前往：设置预警', page: 'alerts' },
   { key: 'goto-heatmap', label: '前往：板块热力图', page: 'heatmap' },
@@ -42,14 +41,13 @@ export default function CommandPalette() {
       ).slice(0, 10)
     : []
 
-  // If the query looks like a 6-digit A-share code (optionally sh/sz/bj-prefixed)
-  // and it isn't already in the built-in universe, offer a "add by code" entry
-  // that lets the user add it as a holding (resolved from the live quote API).
-  const isCode = /^(sh|sz|bj)?\d{6}$/i.test(query.trim())
+  // If the query doesn't match a built-in stock, offer an "add" entry that lets
+  // the user resolve it as any instrument (A股 / 港股 / 美股 / 期货 / ETF) via
+  // the main-process resolver, then add it to holdings.
   const codeMatchesDef = defResults.some(
     (d) => d.symbol === query.trim() || d.code.toLowerCase() === query.trim().toLowerCase()
   )
-  const showLookup = q && isCode && !codeMatchesDef
+  const showLookup = q && !codeMatchesDef
 
   const listCount = q ? defResults.length + (showLookup ? 1 : 0) : QUICK.length
 
@@ -94,7 +92,7 @@ export default function CommandPalette() {
         <input
           ref={inputRef}
           className="cmd-input"
-          placeholder="搜索股票、拼音首字母，或输入 6 位代码添加持仓…"
+          placeholder="搜索股票/拼音，或输入代码添加：A股6位 / 港股 hk00700 / 美股 AAPL / 期货 沪金"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
