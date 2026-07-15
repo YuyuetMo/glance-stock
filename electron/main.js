@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, Tray, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, Notification, Tray, Menu, shell } = require('electron')
 const path = require('path')
 const https = require('https')
 
@@ -93,6 +93,7 @@ function parseTencent(body, items) {
     const volume = parseInt(parts[6], 10) || 0
     if (Number.isNaN(price) || Number.isNaN(prevClose)) return
     map[item.code] = {
+      name: parts[1] || item.name || item.code,
       price: round2(price),
       open: round2(open),
       prevClose: round2(prevClose),
@@ -218,6 +219,163 @@ function fetchRealNews() {
 ipcMain.handle('get-news', async () => {
   const items = await fetchRealNews()
   return items // array of market news, or null on failure
+})
+
+// ── Real market breadth (advance / decline / limit-up / limit-down) ──────────
+// Source: Eastmoney's public stock list. The endpoint caps at 100 rows per
+// page, so we read page 1 (to learn the total), then fetch every remaining
+// page in parallel and count change% across the whole A-share universe.
+// Result is cached for 60s. On any failure we return null so the renderer
+// falls back to its illustrative simulator — the app never breaks.
+const BREADTH_FS = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
+const BREADTH_URL = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=${BREADTH_FS}&fields=f12,f14,f3`
+const BREADTH_TTL = 60000
+let breadthCache = { ts: 0, data: null }
+
+function emGet(url) {
+  return new Promise((resolve) => {
+    const req = https.get(
+      url,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } },
+      (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) return resolve(null)
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+          } catch {
+            resolve(null)
+          }
+        })
+      }
+    )
+    req.on('error', () => resolve(null))
+    req.setTimeout(8000, () => {
+      req.destroy()
+      resolve(null)
+    })
+  })
+}
+
+async function fetchRealBreadth() {
+  const first = await emGet(BREADTH_URL)
+  const total = (first && first.data && first.data.total) || 0
+  const pages = Math.min(60, Math.max(1, Math.ceil(total / 100)))
+  const all = (first && first.data && first.data.diff) || []
+  const reqs = []
+  for (let pn = 2; pn <= pages; pn++) {
+    reqs.push(
+      emGet(
+        `https://push2.eastmoney.com/api/qt/clist/get?pn=${pn}&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=${BREADTH_FS}&fields=f12,f14,f3`
+      )
+    )
+  }
+  const rest = await Promise.all(reqs)
+  rest.forEach((j) => {
+    if (j && j.data && Array.isArray(j.data.diff)) all.push(...j.data.diff)
+  })
+  let up = 0
+  let down = 0
+  let limitUp = 0
+  let limitDown = 0
+  all.forEach((x) => {
+    const c = parseFloat(x.f3)
+    if (Number.isNaN(c)) return
+    if (c > 0) up++
+    else if (c < 0) down++
+    if (c >= 9.9) limitUp++
+    if (c <= -9.9) limitDown++
+  })
+  if (!up && !down) return null
+  return { up, down, limitUp, limitDown }
+}
+
+ipcMain.handle('get-breadth', async () => {
+  const now = Date.now()
+  if (breadthCache.data && now - breadthCache.ts < BREADTH_TTL) {
+    return breadthCache.data
+  }
+  try {
+    const data = await fetchRealBreadth()
+    if (data) {
+      breadthCache = { ts: now, data }
+      return data
+    }
+  } catch (e) {
+    console.warn('[Glance] breadth fetch failed:', e.message)
+  }
+  return null // renderer falls back to simulated breadth
+})
+
+// ── App version + GitHub update check ─────────────────────────────────────────
+ipcMain.handle('get-app-version', () => app.getVersion())
+
+function compareVer(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] || 0
+    const y = pb[i] || 0
+    if (x > y) return 1
+    if (x < y) return -1
+  }
+  return 0
+}
+
+ipcMain.handle('check-update', async () => {
+  try {
+    const json = await new Promise((resolve) => {
+      const req = https.get(
+        'https://api.github.com/repos/YuyuetMo/glance-stock/releases/latest',
+        {
+          headers: {
+            'User-Agent': 'glance',
+            Accept: 'application/vnd.github+json',
+          },
+        },
+        (res) => {
+          const chunks = []
+          res.on('data', (c) => chunks.push(c))
+          res.on('end', () => {
+            try {
+              if (res.statusCode !== 200) return resolve(null)
+              resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+            } catch {
+              resolve(null)
+            }
+          })
+        }
+      )
+      req.on('error', () => resolve(null))
+      req.setTimeout(8000, () => {
+        req.destroy()
+        resolve(null)
+      })
+    })
+    if (!json || !json.tag_name) return null
+    const latest = json.tag_name.replace(/^v/i, '')
+    const current = app.getVersion()
+    const hasUpdate = compareVer(latest, current) > 0
+    const assets = json.assets || []
+    const portable =
+      assets.find((a) => /portable/i.test(a.name)) || assets[0] || null
+    return {
+      hasUpdate,
+      latest,
+      current,
+      notes: json.body || '',
+      htmlUrl: json.html_url || '',
+      portableUrl: portable ? portable.browser_download_url : '',
+    }
+  } catch (e) {
+    console.warn('[Glance] update check failed:', e.message)
+    return null
+  }
+})
+
+ipcMain.handle('open-external', (_event, url) => {
+  if (url && /^https?:\/\//.test(url)) shell.openExternal(url)
 })
 
 // ── Window + System Tray ──────────────────────────────────────────────────────

@@ -28,11 +28,16 @@ import {
   saveNewsCache,
   loadProfile,
   saveProfile,
+  loadCustomStocks,
+  saveCustomStock,
+  removeCustomStock,
 } from './db'
 
 const DEFAULT_WATCHLIST = [
   'sh600519', 'sz300750', 'sz002594', 'sh601318', 'sh600036', 'sz000858',
 ]
+
+const round2 = (n) => Math.round(n * 100) / 100
 
 // Local date string (YYYY-MM-DD) in the user's timezone.
 function localDate(d = new Date()) {
@@ -100,7 +105,16 @@ export const useStore = create((set, get) => ({
   lastNewsPrices: {}, // code -> last notified changePercent (for movement news)
   lastRealCtime: 0, // newest ctime seen from the real feed (dedupe)
   selectedSector: null, // name of sector whose detail panel is open
+  customStocks: {}, // { [code]: def } added by 6-digit code (persisted)
+  // Add-holding modal flow (any code, incl. outside the built-in universe).
+  addHoldingOpen: false,
+  addHoldingInput: '',
+  addHoldingDef: null,
+  addHoldingResolving: false,
+  // GitHub update prompt.
+  updateInfo: null,
   _tid: null,
+  _bid: null, // breadth fetch interval id
 
   // ── Navigation ───────────────────────────────────────────────────────────────
   setCurrentPage: (page) => set({ currentPage: page }),
@@ -129,6 +143,136 @@ export const useStore = create((set, get) => ({
     set({ holdings: next })
     dbRemoveHolding(code)
   },
+
+  // ── Custom stocks (added by 6-digit code, outside the built-in universe) ─────
+  // Ensure a stock exists in the live `stocks` map; persist it if it's not a
+  // built-in def so holdings survive a restart.
+  ensureStock: (def, quote) => {
+    const code = def.code
+    const isBuiltin = STOCK_DEFS.some((d) => d.code === code)
+    const price = (quote && quote.price) || def.prevClose || 0
+    set({
+      stocks: {
+        ...get().stocks,
+        [code]: {
+          ...def,
+          ...(quote || {}),
+          price: round2(price),
+          prevClose: round2(def.prevClose || price),
+          changePercent: (quote && quote.changePercent) || 0,
+          change: (quote && quote.change) || 0,
+          sparkline: [round2(price)],
+        },
+      },
+    })
+    if (!isBuiltin) {
+      set({ customStocks: { ...get().customStocks, [code]: def } })
+      saveCustomStock(def)
+    }
+  },
+
+  // Resolve a raw input (6-digit code, optionally sh/sz/bj-prefixed) to a real
+  // A-share quote via the main-process Tencent proxy. Returns the stock def or
+  // null on failure.
+  resolveStock: async (raw) => {
+    const m = String(raw).match(/^(sh|sz|bj)?\s*(\d{6})$/i)
+    if (!m) return null
+    const symbol = m[2]
+    let prefix = (m[1] || '').toLowerCase()
+    if (!prefix) {
+      if (/^[69]/.test(symbol)) prefix = 'sh'
+      else if (/^[03]/.test(symbol)) prefix = 'sz'
+      else if (/^[48]/.test(symbol)) prefix = 'bj'
+      else prefix = 'sh'
+    }
+    const code = prefix + symbol
+    if (get().stocks[code]) return get().stocks[code]
+    try {
+      const res = await window.electronAPI.getQuotes({
+        stocks: [{ code, symbol, prevClose: 0 }],
+        indices: [],
+      })
+      const q = res && res.stocks && res.stocks[0]
+      if (q && q.price) {
+        const def = {
+          code,
+          symbol,
+          name: q.name || code,
+          market: prefix,
+          prevClose: q.prevClose || q.price,
+        }
+        get().ensureStock(def, q)
+        return get().stocks[code]
+      }
+    } catch (e) {
+      console.warn('[Glance] resolveStock failed:', e.message)
+    }
+    return null
+  },
+
+  // ── Add-holding modal flow (supports any code) ───────────────────────────────
+  openAddHolding: (input) => {
+    set({
+      addHoldingOpen: true,
+      addHoldingInput: input,
+      addHoldingDef: null,
+      addHoldingResolving: true,
+    })
+    const finish = (def) => {
+      if (def) {
+        set({ addHoldingDef: def, addHoldingResolving: false })
+      } else {
+        set({ addHoldingResolving: false })
+      }
+    }
+    // If it's already a known stock, use it directly; otherwise resolve by code.
+    if (get().stocks[input]) {
+      finish(get().stocks[input])
+      return
+    }
+    get()
+      .resolveStock(input)
+      .then(finish)
+  },
+  submitAddHolding: (costPrice, shares) => {
+    const def = get().addHoldingDef
+    if (!def) return
+    get().ensureStock(def, get().stocks[def.code])
+    get().addHolding(def.code, { costPrice, shares })
+    set({ addHoldingOpen: false, addHoldingInput: '', addHoldingDef: null })
+  },
+  closeAddHolding: () =>
+    set({
+      addHoldingOpen: false,
+      addHoldingInput: '',
+      addHoldingDef: null,
+      addHoldingResolving: false,
+    }),
+
+  // ── Real market breadth (advance/decline) ────────────────────────────────────
+  fetchBreadth: async () => {
+    try {
+      const real = await window.electronAPI.getBreadth?.()
+      if (real && real.up != null) {
+        set({ marketBreadth: real })
+        return
+      }
+    } catch (e) {
+      // ignore — fall back to simulated below
+    }
+    set({ marketBreadth: computeBreadth(get().stocks) })
+  },
+
+  // ── GitHub update check ───────────────────────────────────────────────────────
+  checkUpdate: async () => {
+    try {
+      const r = await window.electronAPI.checkUpdate?.()
+      if (r && r.hasUpdate) set({ updateInfo: r })
+    } catch (e) {
+      // ignore — no prompt if the check fails
+    }
+  },
+  dismissUpdate: () => set({ updateInfo: null }),
 
   // ── Command palette ───────────────────────────────────────────────────────────
   toggleCommand: () => set({ commandOpen: !get().commandOpen }),
@@ -190,11 +334,16 @@ export const useStore = create((set, get) => ({
     }
     tick()
     set({ _tid: setTimeout(loop, refreshIntervalMs()) })
+    // Real all-market breadth (advance/decline) on a slower cadence.
+    get().fetchBreadth()
+    const bid = setInterval(() => get().fetchBreadth(), 30000)
+    set({ _bid: bid })
   },
   stopTicking: () => {
     const tid = get()._tid
     if (tid) clearTimeout(tid)
-    set({ _tid: null })
+    if (get()._bid) clearInterval(get()._bid)
+    set({ _tid: null, _bid: null })
   },
 
   // ── News ticking: keep the feed live ──────────────────────────────────────────
@@ -279,12 +428,13 @@ export const useStore = create((set, get) => ({
   // ── Init: restore persisted state ───────────────────────────────────────────
   init: async () => {
     try {
-      const [wl, al, hd, cachedNews, prof] = await Promise.all([
+      const [wl, al, hd, cachedNews, prof, custom] = await Promise.all([
         loadWatchlist(),
         loadAlerts(),
         loadHoldings(),
         loadNewsCache(),
         loadProfile(),
+        loadCustomStocks(),
       ])
       const today = localDate()
       const yesterday = localDate(new Date(Date.now() - 86400000))
@@ -321,6 +471,28 @@ export const useStore = create((set, get) => ({
           h[x.code] = { costPrice: x.costPrice, shares: x.shares }
         })
         patch.holdings = h
+      }
+      // Merge any custom (code-added) stocks into the live quote map so
+      // holdings/watchlist entries referencing them keep working after restart.
+      if (custom && custom.length) {
+        const cmap = {}
+        custom.forEach((d) => {
+          cmap[d.code] = d
+        })
+        patch.customStocks = cmap
+        const merged = { ...get().stocks }
+        custom.forEach((d) => {
+          if (!merged[d.code]) {
+            merged[d.code] = {
+              ...d,
+              price: d.prevClose || 0,
+              change: 0,
+              changePercent: 0,
+              sparkline: [d.prevClose || 0],
+            }
+          }
+        })
+        patch.stocks = merged
       }
       if (cachedNews && cachedNews.news) {
         patch.news = cachedNews.news

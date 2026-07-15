@@ -12,6 +12,8 @@ import ProfilePage from './components/ProfilePage'
 import CommandPalette from './components/CommandPalette'
 import DetailPanel from './components/DetailPanel'
 import SectorDetailPanel from './components/SectorDetailPanel'
+import AddHoldingModal from './components/AddHoldingModal'
+import UpdateModal from './components/UpdateModal'
 
 const PAGES = {
   watchlist: WatchlistPage,
@@ -32,6 +34,7 @@ export default function App() {
   const stopTicking = useStore((s) => s.stopTicking)
   const startNewsTicking = useStore((s) => s.startNewsTicking)
   const stopNewsTicking = useStore((s) => s.stopNewsTicking)
+  const checkUpdate = useStore((s) => s.checkUpdate)
   const toggleCommand = useStore((s) => s.toggleCommand)
   const closeCommand = useStore((s) => s.closeCommand)
   const closeDetail = useStore((s) => s.closeDetail)
@@ -42,11 +45,15 @@ export default function App() {
     init()
     startTicking()
     startNewsTicking()
+    // Check for a newer GitHub release once on launch (Electron only).
+    if (window.electronAPI && window.electronAPI.checkUpdate) {
+      checkUpdate()
+    }
     return () => {
       stopTicking()
       stopNewsTicking()
     }
-  }, [init, startTicking, stopTicking, startNewsTicking, stopNewsTicking])
+  }, [init, startTicking, stopTicking, startNewsTicking, stopNewsTicking, checkUpdate])
 
   // Global shortcuts: Ctrl/Cmd+K toggles the palette, Escape closes overlays.
   useEffect(() => {
@@ -77,6 +84,8 @@ export default function App() {
       {commandOpen && <CommandPalette />}
       {detailOpen && <DetailPanel key={selectedStock} />}
       {selectedSector && <SectorDetailPanel />}
+      <AddHoldingModal />
+      <UpdateModal />
       <BottomNav />
     </div>
   )

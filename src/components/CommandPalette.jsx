@@ -17,6 +17,7 @@ export default function CommandPalette() {
 
   const closeCommand = useStore((s) => s.closeCommand)
   const addToWatchlist = useStore((s) => s.addToWatchlist)
+  const openAddHolding = useStore((s) => s.openAddHolding)
   const watchlist = useStore((s) => s.watchlist)
   const openDetail = useStore((s) => s.openDetail)
   const setCurrentPage = useStore((s) => s.setCurrentPage)
@@ -26,13 +27,12 @@ export default function CommandPalette() {
     inputRef.current && inputRef.current.focus()
   }, [])
 
-  // Reset highlighted row whenever the query changes.
   useEffect(() => {
     setSel(0)
   }, [query])
 
   const q = query.trim().toLowerCase()
-  const results = q
+  const defResults = q
     ? STOCK_DEFS.filter(
         (d) =>
           d.name.toLowerCase().includes(q) ||
@@ -42,7 +42,16 @@ export default function CommandPalette() {
       ).slice(0, 10)
     : []
 
-  const listCount = q ? results.length : QUICK.length
+  // If the query looks like a 6-digit A-share code (optionally sh/sz/bj-prefixed)
+  // and it isn't already in the built-in universe, offer a "add by code" entry
+  // that lets the user add it as a holding (resolved from the live quote API).
+  const isCode = /^(sh|sz|bj)?\d{6}$/i.test(query.trim())
+  const codeMatchesDef = defResults.some(
+    (d) => d.symbol === query.trim() || d.code.toLowerCase() === query.trim().toLowerCase()
+  )
+  const showLookup = q && isCode && !codeMatchesDef
+
+  const listCount = q ? defResults.length + (showLookup ? 1 : 0) : QUICK.length
 
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
@@ -66,9 +75,11 @@ export default function CommandPalette() {
       }
       return
     }
-    const d = results[i]
-    if (d) {
-      openDetail(d.code)
+    if (i < defResults.length) {
+      openDetail(defResults[i].code)
+      closeCommand()
+    } else if (showLookup) {
+      openAddHolding(query.trim())
       closeCommand()
     }
   }
@@ -83,7 +94,7 @@ export default function CommandPalette() {
         <input
           ref={inputRef}
           className="cmd-input"
-          placeholder="搜索股票、拼音首字母，或输入命令…"
+          placeholder="搜索股票、拼音首字母，或输入 6 位代码添加持仓…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -102,7 +113,7 @@ export default function CommandPalette() {
             ))}
 
           {q &&
-            results.map((d, i) => {
+            defResults.map((d, i) => {
               const st = stocks[d.code]
               const up = st ? st.changePercent >= 0 : true
               const inWl = watchlist.includes(d.code)
@@ -135,12 +146,37 @@ export default function CommandPalette() {
                         + 自选
                       </span>
                     )}
+                    <span
+                      className="cmd-item-badge cmd-badge-hold"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openAddHolding(d.code)
+                      }}
+                    >
+                      + 持仓
+                    </span>
                   </span>
                 </div>
               )
             })}
 
-          {q && results.length === 0 && <div className="cmd-empty">没有找到相关股票</div>}
+          {showLookup && (
+            <div
+              className={`cmd-item ${defResults.length === sel ? 'selected' : ''}`}
+              onMouseEnter={() => setSel(defResults.length)}
+              onClick={() => confirm(defResults.length)}
+            >
+              <span className="cmd-item-label">
+                <span className="cmd-item-name">🔍 添加代码 {query.trim().toUpperCase()}</span>
+                <span className="cmd-item-code font-mono">实时查询并加入持仓</span>
+              </span>
+              <span className="cmd-item-badge cmd-badge-hold">+ 持仓</span>
+            </div>
+          )}
+
+          {q && defResults.length === 0 && !showLookup && (
+            <div className="cmd-empty">没有找到相关股票</div>
+          )}
         </div>
       </div>
     </div>

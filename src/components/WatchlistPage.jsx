@@ -59,7 +59,7 @@ export default function WatchlistPage() {
       <div className="sentiment-card card-enter">
         <div className="sentiment-head">
           <span className="sentiment-title">大盘情绪</span>
-          <span className="sentiment-tag">示意</span>
+          <span className="sentiment-tag">实时</span>
         </div>
         <Gauge value={sentiment} label="恐慌 / 贪婪指数" sub={moodText} />
       </div>

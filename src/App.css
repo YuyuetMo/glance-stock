@@ -583,6 +583,59 @@ button:focus-visible, input:focus-visible { outline: none; }
 .gauge-label { font-size: 12px; color: var(--text-2); letter-spacing: 0.5px; }
 .gauge-sub { font-size: 11px; color: var(--text-3); text-align: center; }
 
+/* ── Command palette: +持仓 badge ─────────────────────────────────────────── */
+.cmd-badge-hold {
+  background: var(--accent-grad) !important;
+  color: #fff !important;
+  border: none !important;
+}
+.cmd-item-right { display: flex; align-items: center; gap: 8px; }
+
+/* ── Add-holding modal ────────────────────────────────────────────────────── */
+.add-holding-modal { width: 380px; padding: 22px; }
+.ah-loading { padding: 18px 6px; color: var(--text-2); font-size: 14px; line-height: 1.6; }
+.ah-close { margin-top: 14px; }
+.ah-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.ah-name { font-size: 18px; font-weight: 700; color: var(--text-1); }
+.ah-code { font-size: 12px; color: var(--text-3); }
+.ah-price { font-size: 15px; margin-bottom: 14px; }
+.ah-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.ah-field > span { font-size: 13px; color: var(--text-2); }
+.ah-input {
+  background: var(--bg-base); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px; color: var(--text-1);
+  font-size: 16px; outline: none;
+}
+.ah-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(209,26,60,0.25); }
+.ah-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+.ah-hint { margin-top: 12px; font-size: 11px; color: var(--text-3); }
+
+/* ── Update modal ─────────────────────────────────────────────────────────── */
+.update-modal { width: 440px; padding: 22px; }
+.up-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.up-badge {
+  background: var(--accent-grad); color: #fff; font-size: 11px;
+  padding: 2px 10px; border-radius: 999px; font-weight: 600;
+}
+.up-version { font-size: 18px; font-weight: 700; color: var(--text-1); }
+.up-current { font-size: 12px; color: var(--text-3); }
+.up-title { font-size: 15px; color: var(--text-2); margin-bottom: 12px; }
+.up-notes {
+  max-height: 220px; overflow-y: auto; background: var(--bg-base);
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+  font-size: 13px; color: var(--text-2); line-height: 1.7; margin-bottom: 16px;
+}
+.up-line { white-space: pre-wrap; }
+.up-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn-ghost {
+  background: var(--bg-surface); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 9px 16px; font-size: 14px; cursor: pointer; transition: all 0.2s;
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--text-1); }
+
 /* ── Sentiment card (home) ─────────────────────────────────────────────────── */
 .sentiment-card {
   background: var(--card-bg);

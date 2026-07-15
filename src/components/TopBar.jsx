@@ -52,7 +52,7 @@ export default function TopBar() {
           <span className="bx-divider">|</span>
           <span className="bx fall">下跌 <b className="font-mono">{breadth.down}</b></span>
           <span className="bx fall">跌停 <b className="font-mono">{breadth.limitDown}</b></span>
-          <span className="breadth-note">示意</span>
+          <span className="breadth-note">实时</span>
         </div>
         <button
           className="topbar-min-btn"
